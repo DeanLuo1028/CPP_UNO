@@ -1,0 +1,46 @@
+# === 臨時資料夾 ===
+temp/
+
+# === 編譯產出的執行檔與二進制檔 ===
+*.exe
+*.out
+*.app
+*.o
+*.obj
+*.so
+*.dylib
+*.dll
+*.lib
+*.a
+
+# === 建置目錄 (Build folders) ===
+# 排除常見的建置輸出資料夾
+output/
+[Bb]uild/
+[Dd]ebug/
+[Rr]elease/
+bin/
+obj/
+
+# === VS Code 設定 ===
+.vscode/
+
+# === C++ 擴充功能產生的快取 (C/C++ Extension / IntelliSense) ===
+.history/
+.vs/
+.history/
+ipch/
+*.pch
+*.pdb
+*.ilk
+*.idb
+*.ncb
+*.sdf
+*.suo
+*.user
+*.sln
+
+# === 作業系統產生的雜檔 ===
+.DS_Store
+Thumbs.db
+desktop.ini
