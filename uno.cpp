@@ -5,18 +5,19 @@
 #include <random>
 #include <map>
 #include <ctime>
-#include <cctype>
-#include <memory>    // 用於 std::unique_ptr 與 std::make_unique
+#include <memory>
 
 // ---------------------------------------------------------
 // 定義常數與枚舉
 // ---------------------------------------------------------
-enum class Color {
-    RED,
-    YELLOW,
-    GREEN,
-    BLUE,
-    SPECIAL
+enum class Color { RED, YELLOW, GREEN, BLUE, SPECIAL }; 
+
+const std::map<Color, std::string> strOfColor = {
+    {Color::RED, "R"}, 
+    {Color::YELLOW, "Y"}, 
+    {Color::GREEN, "G"}, 
+    {Color::BLUE, "B"},
+    {Color::SPECIAL, "special"}
 };
 
 const std::vector<std::string> RANKS = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "Skip", "Reverse", "+2"};
@@ -35,37 +36,19 @@ inline void trim(std::string &s) {
 
 // 輔助函式：顏色轉字串
 // 將 Internal Color 列舉值轉換為 UNO 遊戲中使用的簡寫 (R/Y/G/B) 或特殊牌字串。
-std::string getColorValue(Color c) {
-    switch(c) {
-        case Color::RED: return "R";
-        case Color::YELLOW: return "Y";
-        case Color::GREEN: return "G";
-        case Color::BLUE: return "B";
-        case Color::SPECIAL: return "special";
-        default: return "";
-    }
-}
-
-// 輔助函式：顏色轉名稱
-// 將 Internal Color 列舉值轉換為可供顯示的文字 (例如選擇顏色提示時使用)。
-std::string getColorName(Color c) {
-    switch(c) {
-        case Color::RED: return "RED";
-        case Color::YELLOW: return "YELLOW";
-        case Color::GREEN: return "GREEN";
-        case Color::BLUE: return "BLUE";
-        case Color::SPECIAL: return "SPECIAL";
-        default: return "";
-    }
+std::string getColorStr(Color c) {
+    auto it = strOfColor.find(c);
+    return it != strOfColor.end() ? it->second : "?";
 }
 
 // 輔助函式：字串轉顏色
 // 將使用者輸入的顏色代碼 (R/Y/G/B) 轉換為 Color 列舉值。
+// 若輸入無效，則拋出異常
 Color stringToColor(const std::string& s) {
-    if (s == "R") return Color::RED;
-    if (s == "Y") return Color::YELLOW;
-    if (s == "G") return Color::GREEN;
-    if (s == "B") return Color::BLUE;
+    for(const auto& pair : strOfColor) {
+        if (s == pair.second) return pair.first;
+    }
+    throw std::out_of_range("輸入的字串找不到對應的顏色！");
 }
 
 // ---------------------------------------------------------
@@ -80,7 +63,7 @@ public:
 
     // 將卡片內容格式化為可輸出字串，例如 "R 5" 或 "special +4"。
     std::string toString() const noexcept {
-        return getColorValue(color) + " " + rank + ", ";
+        return getColorStr(color) + " " + rank;
     }
 
     // 判斷這張牌是否符合出牌規則：
@@ -119,10 +102,11 @@ public:
     // - wild、+4: 各4張
     Deck() {
         rng.seed(static_cast<unsigned>(std::time(nullptr)));
-        std::vector<Color> colors = {Color::RED, Color::YELLOW, Color::GREEN, Color::BLUE};
         
         // 4種顏色
-        for (auto c : colors) {
+        for (const auto& pair : strOfColor) {
+            Color c = pair.first;
+            if (c == Color::SPECIAL) continue;
             cards.emplace_back(c, "0"); // 添加4張0
             // 數字1~9和"Skip", "Reverse", "+2"都各有兩張
             for (const auto& r : RANKS) {
@@ -141,20 +125,19 @@ public:
 
     // 將牌庫內的牌隨機重新排列。
     // 這在遊戲開始時，以及需要補牌時使用。
-    void shuffle() {
+    inline void shuffle() {
         std::shuffle(cards.begin(), cards.end(), rng);
         std::cout << "洗牌完成!" << std::endl;
     }
 
-    // Draw a card from the deck. If the deck is empty, replenish it from the discard pile.
-    // Returns by value to avoid returning a reference to a local variable.
-    Card draw() {
+    // 從牌堆中抽取一張牌。如果牌堆為空，則從棄牌堆補充牌堆。
+    inline Card draw() {
         if (cards.empty()) {
             std::cout << "牌已經沒了！" << std::endl;
             replenish();
         }
-        Card c = std::move(cards.back());
-        cards.pop_back();
+        Card c = std::move(cards.back()); // 把牌組最後一張移動出來
+        cards.pop_back(); // cards 減少一張
         return c;
     }
 
@@ -162,6 +145,9 @@ public:
     // 會保留棄牌堆最上方的一張牌作為新的棄牌堆頂牌。
     // wild/+4 在棄牌後需還原為 SPECIAL 顏色，以便新一輪出牌可以選色。
     void replenish() {
+        if (discard.empty()) {
+            throw std::runtime_error("錯誤：棄牌堆為空，無法補牌！");
+        }
         Card discard_last_card = std::move(discard.back());
         discard.pop_back();
 
@@ -220,8 +206,11 @@ public:
     // 執行玩家這一輪的動作：出牌或抽牌。
     // 回傳值表示動作結果，用於後續處理狀態（例如 Skip、Reverse、+2、+4、win）。
     std::string action(Deck& deck) {
+        if (deck.discard.empty()) {
+            throw std::runtime_error("錯誤：棄牌堆為空，遊戲狀態異常！");
+        }
         Card& top_card = deck.discard.back();
-        std::cout << "現在牌堆最上方的牌:" << top_card << std::endl;
+        std::cout << "現在牌堆最上方的牌: " << top_card << std::endl;
 
         bool played = this->play(deck);
 
@@ -280,10 +269,10 @@ public:
         // 優先出非特殊牌
         for (auto it = hand.begin(); it != hand.end(); ++it) {
             if (it->color != Color::SPECIAL && it->has_compliance_rules(discard_last_card)) {
-                Card&& c = std::move(*it);
+                Card c = std::move(*it);
                 hand.erase(it);
                 deck.discard.push_back(c);
-                std::cout << name << "出了" << c << std::endl;
+                std::cout << name << "出了 " << c << std::endl;
                 return true;
             }
         }
@@ -291,10 +280,10 @@ public:
         // 出特殊牌
         for (auto it = hand.begin(); it != hand.end(); ++it) {
             if (it->color == Color::SPECIAL) {
-                Card&& c = std::move(*it);
+                Card c = std::move(*it);
                 hand.erase(it);
                 deck.discard.push_back(c);
-                std::cout << name << "出了" << c << std::endl;
+                std::cout << name << "出了 " << c << std::endl;
                 return true;
             }
         }
@@ -321,7 +310,7 @@ public:
                 max_color = pair.first;
             }
         }
-        std::cout << name << "選擇了" << getColorValue(max_color) << "色" << std::endl;
+        std::cout << name << "選擇了" << getColorStr(max_color) << "色" << std::endl;
         return max_color;
     }
 };
@@ -336,9 +325,9 @@ public:
     // 人類玩家抽牌，並顯示抽到的牌。
     void deal(int cards_num, Deck& deck) override {
         for (int i = 0; i < cards_num; ++i) {
-            const Card& c = deck.draw();
+            Card c = deck.draw();
             hand.push_back(c);
-            std::cout << name << "抽到了" << c << std::endl;
+            std::cout << name << "抽到了 " << c << std::endl;
         }
     }
 
@@ -381,14 +370,14 @@ public:
             } else {
                 Card card = hand[user_input - 1];
                 if (!card.has_compliance_rules(discard_last_card)) {
-                    std::cout << "請輸入顏色為" << getColorValue(discard_last_card.color) 
+                    std::cout << "請輸入顏色為" << getColorStr(discard_last_card.color) 
                               << "或special的牌或者點數為" << discard_last_card.rank << "的牌!" << std::endl;
                     continue;
                 }
 
                 hand.erase(hand.begin() + (user_input - 1));
                 deck.discard.push_back(card);
-                std::cout << name << "出了" << card << std::endl;
+                std::cout << name << "出了 " << card << std::endl;
                 return true;
             }
         }
@@ -408,7 +397,7 @@ public:
                 std::cout << "請輸入有效的顏色代號!" << std::endl;
             } else {
                 Color c = stringToColor(s);
-                std::cout << name << "選擇了" << getColorName(c) << "色" << std::endl;
+                std::cout << name << "選擇了" << getColorStr(c) << "色" << std::endl;
                 return c;
             }
         }
@@ -452,7 +441,6 @@ public:
         running = true;
         deck = Deck(); 
         
-        // 透過 unique_ptr 呼叫方法與 raw pointer 一模一樣 (使用 ->)
         for (auto& p : players) {
             p->hand.clear();
             p->deal(7, deck);
@@ -467,7 +455,7 @@ public:
                 deck.cards.insert(deck.cards.begin(), first_card);
             } else {
                 deck.discard.push_back(first_card);
-                std::cout << "底牌是" << first_card << std::endl;
+                std::cout << "底牌是 " << first_card << std::endl;
                 break;
             }
         }
@@ -510,8 +498,9 @@ public:
                 now_index = normalize_index(now_index + direction);
             } else if (state == "Skip") {
                 // 跳過下一位玩家
+                int skipped_index = normalize_index(now_index + direction);
+                std::cout << players[skipped_index]->name << "被跳過了" << std::endl;
                 now_index = normalize_index(now_index + 2 * direction);
-                std::cout << players[now_index]->name << "被跳過了" << std::endl;
             } else if (state == "Reverse") {
                 // 反轉出牌方向
                 direction *= -1;
