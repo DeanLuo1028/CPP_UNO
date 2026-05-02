@@ -21,6 +21,7 @@ output/
 [Rr]elease/
 bin/
 obj/
+build.*
 
 # === VS Code 設定 ===
 .vscode/
