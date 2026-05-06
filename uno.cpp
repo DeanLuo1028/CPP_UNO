@@ -11,6 +11,11 @@ using str = std::string;
 // ---------------------------------------------------------
 // 定義常數與枚舉
 // ---------------------------------------------------------
+
+// ---------------------------------------------------------
+// Class Color
+// ---------------------------------------------------------
+// 只存一個 enum Value ， enum 底層就一個整數，開銷比存str小
 class Color {
 public:
     enum Value { RED, YELLOW, GREEN, BLUE, SPECIAL };
@@ -44,6 +49,10 @@ public:
 const std::vector<str> Color::names = {"RED", "YELLOW", "GREEN", "BLUE", "SPECIAL"}; // 一定要與Color::Value一一對應
 const std::vector<str> Color::strings = {"R", "Y", "G", "B", "Special"}; // 一定要與Color::Value一一對應
 
+// ---------------------------------------------------------
+// Class Rank
+// ---------------------------------------------------------
+// 只存一個 enum Value ， enum 底層就一個整數，開銷比存str小
 class Rank {
 public:
     enum Value { _0, _1, _2, _3, _4, _5, _6, _7, _8, _9, SKIP, REVERSE, DRAW_2 , WILD, WILD_DRAW_4};
@@ -127,12 +136,20 @@ public:
     std::vector<Card> discard;
     std::mt19937 rng;
 
-    // 建構子：初始化牌組 (108張)，並自動洗牌
+    // 構造子：僅初始化成員，不進行牌組初始化
+    // 牌組初始化延遲到 setup() 中進行
+    Deck() {
+        rng.seed(static_cast<unsigned>(std::time(nullptr)));
+    }
+
+    // 初始化牌組 (108張)，並自動洗牌
+    // 清空舊數據後重新建造，支援重複調用而不重複初始化
     // - 0: 1張
     // - 1~9、Skip、Reverse、+2: 每種顏色各2張
     // - wild、+4: 各4張
-    Deck() {
-        rng.seed(static_cast<unsigned>(std::time(nullptr)));
+    void init() {
+        cards.clear();
+        discard.clear();
         
         // 4種顏色
         for (std::size_t i=0; i<Color::strings.size(); ++i) { // 比 for (const str& color_str : Color::strings) {
@@ -160,13 +177,13 @@ public:
     // 這在遊戲開始時，以及需要補牌時使用。
     inline void shuffle() {
         std::shuffle(cards.begin(), cards.end(), rng);
-        std::cout << "洗牌完成!" << std::endl;
+        std::cout << "洗牌完成!" << '\n';
     }
 
     // 從牌堆中抽取一張牌。如果牌堆為空，則從棄牌堆補充牌堆。
     inline Card draw() {
         if (cards.empty()) {
-            std::cout << "牌已經沒了！" << std::endl;
+            std::cout << "牌已經沒了！" << '\n';
             replenish();
         }
         Card c = std::move(cards.back()); // 把牌組最後一張移動出來
@@ -205,7 +222,7 @@ public:
                 cards.insert(cards.begin(), card); // 插回最底部
             } else { // card 可以當底牌
                 discard.push_back(card);
-                std::cout << "底牌是 " << card << std::endl;
+                std::cout << "底牌是 " << card << '\n';
                 break;
             }
         }
@@ -220,6 +237,9 @@ public:
 class Player {
 public:
     str name;
+    // 玩家手牌，為什麼要經常增刪的手牌要使用vector呢？用std::list不好嗎？
+    // 因為 std::list 雖然增刪快，但遍歷慢啊！
+    // 每次出牌都要遍歷，但不一定要刪除啊，抽牌只要尾端加一
     std::vector<Card> hand;
 
     Player(str n) : name(std::move(n)) {}
@@ -244,11 +264,11 @@ public:
 
     // 顯示玩家目前手牌，並標示每張牌的編號（方便玩家選擇出牌）。
     void display_hand() const {
-        std::cout << name << "的手牌:" << std::endl;
+        std::cout << name << "的手牌:" << '\n';
         for (std::size_t i = 0; i < hand.size(); ++i) {
             std::cout << "第" << (i + 1) << "張:" << hand[i] << " ";
         }
-        std::cout << std::endl;
+        std::cout << '\n';
     }
 
     // 執行玩家這一輪的動作：出牌或抽牌。
@@ -258,7 +278,7 @@ public:
             throw std::runtime_error("錯誤：棄牌堆為空，遊戲狀態異常！");
         }
         Card& top_card = deck.discard.back();
-        std::cout << "現在牌堆最上方的牌: " << top_card << std::endl;
+        std::cout << "現在牌堆最上方的牌: " << top_card << '\n';
 
         // 是否不須抽牌
         bool played = this->play(deck); // 動態綁定
@@ -287,9 +307,9 @@ public:
     // 顯示玩家手牌數。當只剩一張時顯示 "UNO" 提示。
     void say_card_num() const noexcept {
         if (static_cast<int>(hand.size()) == 1) {
-            std::cout << name << "說:UNO!" << std::endl;
+            std::cout << name << "說: UNO!" << '\n';
         } else {
-            std::cout << name << "剩" << hand.size() << "張" << std::endl;
+            std::cout << name << "剩" << hand.size() << "張" << '\n';
         }
     }
 };
@@ -299,7 +319,7 @@ public:
 // ---------------------------------------------------------
 class RobotPlayer : public Player {
 public:
-    RobotPlayer(str n) : Player(std::move(n)) {}
+    RobotPlayer(str name) : Player(std::move(name)) {}
     
     // 機器人收到指定張數的牌時，從牌庫抽牌並放到手牌。
     void deal(int cards_num, Deck& deck) override {
@@ -318,10 +338,9 @@ public:
         // 優先出非特殊牌
         for (auto it = hand.begin(); it != hand.end(); ++it) {
             if (it->color != Color::SPECIAL && it->has_compliance_rules(discard_last_card)) {
-                Card c = std::move(*it);
+                deck.discard.push_back(std::move(*it));
                 hand.erase(it); // erase 使 it 失效，之後不應繼續迭代
-                deck.discard.push_back(c);
-                std::cout << name << "出了 " << c << std::endl;
+                std::cout << name << "出了 " << deck.discard.back() << '\n';
                 return true; // 不過因為這裡直接返回了所以實際上不會造成問題
             }
         }
@@ -329,15 +348,14 @@ public:
         // 出特殊牌
         for (auto it = hand.begin(); it != hand.end(); ++it) {
             if (it->color == Color::SPECIAL) {
-                Card c = std::move(*it);
+                deck.discard.push_back(std::move(*it));
                 hand.erase(it); // erase 使 it 失效，之後不應繼續迭代
-                deck.discard.push_back(c);
-                std::cout << name << "出了 " << c << std::endl;
+                std::cout << name << "出了 " << deck.discard.back() << '\n';
                 return true; // 不過因為這裡直接返回了所以實際上不會造成問題
             }
         }
 
-        std::cout << name << "沒牌可出，抽一張" << std::endl;
+        std::cout << name << "沒牌可出，抽一張" << '\n';
         deal(1, deck);
         return false;
     }
@@ -359,7 +377,7 @@ public:
                 max_color = pair.first;
             }
         }
-        std::cout << name << "選擇了" << max_color.getName() << std::endl;
+        std::cout << name << "選擇了" << max_color.getName() << '\n';
         return max_color;
     }
 };
@@ -369,14 +387,14 @@ public:
 // ---------------------------------------------------------
 class HumanPlayer : public Player {
 public:
-    HumanPlayer(str n) : Player(std::move(n)) {}
+    HumanPlayer(str name) : Player(std::move(name)) {}
 
     // 人類玩家抽牌，並顯示抽到的牌。
     void deal(int cards_num, Deck& deck) override {
         for (int i = 0; i < cards_num; ++i) {
             Card c = deck.draw();
             hand.push_back(c);
-            std::cout << name << "抽到了 " << c << std::endl;
+            std::cout << name << "抽到了 " << c << '\n';
         }
     }
 
@@ -384,11 +402,11 @@ public:
     // 這裡會持續詢問輸入直到拿到合法的選項。
     bool play(Deck& deck) override {
         Card& discard_last_card = deck.discard.back();
-        std::cout << "以下是你的牌:" << std::endl;
+        std::cout << "以下是你的牌:" << '\n';
         display_hand();
 
         while (true) {
-            std::cout << name << "請問你要出第幾張牌?(如果不想出牌，請輸入0)" << std::endl;
+            std::cout << name << "請問你要出第幾張牌?(如果不想出牌，請輸入0)" << '\n';
             str s;
             std::getline(std::cin, s);
             trim(s);
@@ -397,19 +415,19 @@ public:
             std::transform(s_lower.begin(), s_lower.end(), s_lower.begin(), ::tolower);
             
             if (s_lower == "quit") {
-                std::cout << "遊戲結束!" << std::endl;
+                std::cout << "遊戲結束!" << '\n';
                 exit(0);
             }
 
             bool is_digit = !s.empty() && std::all_of(s.begin(), s.end(), ::isdigit);
             if (!is_digit) {
-                std::cout << "請輸入一個有效的整數！" << std::endl;
+                std::cout << "請輸入一個有效的整數！" << '\n';
                 continue;
             }
 
             int user_input = std::stoi(s);
             if (user_input < 0 || user_input > static_cast<int>(hand.size())) {
-                std::cout << "請輸入0~" << hand.size() << "之間的整數!" << std::endl;
+                std::cout << "請輸入0~" << hand.size() << "之間的整數!" << '\n';
                 continue;
             }
 
@@ -417,16 +435,17 @@ public:
                 deal(1, deck);
                 return false;
             } else {
-                Card card = hand[user_input - 1]; // 減1是因為std::vector的索引從0開始
+                Card& card = hand[user_input - 1]; // 減1是因為std::vector的索引從0開始
                 if (!card.has_compliance_rules(discard_last_card)) {
                     std::cout << "請輸入顏色為" << discard_last_card.color.getStr()
-                              << "或special的牌或者點數為" << discard_last_card.rank.getStr() << "的牌!" << std::endl;
+                              << "或special的牌或者點數為" << discard_last_card.rank.getStr() << "的牌!" << '\n';
                     continue;
                 }
 
-                hand.erase(hand.begin() + (user_input - 1));
-                deck.discard.push_back(card);
-                std::cout << name << "出了 " << card << std::endl;
+                auto it = hand.begin() + (user_input - 1); // 要出的那張的迭代器
+                deck.discard.push_back(*it);
+                hand.erase(it);
+                std::cout << name << "出了 " << deck.discard.back() << '\n';
                 return true;
             }
         }
@@ -436,18 +455,18 @@ public:
     // 會持續詢問直到輸入有效顏色代號為止。
     Color convert_color() override {
         while (true) {
-            std::cout << name << "請選擇顏色:(請輸入RYGB其中之一)" << std::endl;
+            std::cout << name << "請選擇顏色:(請輸入RYGB其中之一)" << '\n';
             str s;
             std::getline(std::cin, s);
             trim(s);
             std::transform(s.begin(), s.end(), s.begin(), ::toupper);
             
-            if (s != "R" && s != "Y" && s != "G" && s != "B") {
-                std::cout << "請輸入有效的顏色代號!" << std::endl;
-            } else {
+            try {
                 Color c(s);
-                std::cout << name << "選擇了" << c.getName() << std::endl;
+                std::cout << name << "選擇了" << c.getName() << '\n';
                 return c;
+            } catch (const std::out_of_range &e) {
+                std::cout << e.what() << '\n';
             }
         }
     }
@@ -459,12 +478,9 @@ public:
 // 管理整個遊戲流程：設定玩家、發牌、輪流出牌、處理特殊牌效果，以及判定遊戲結束。
 class UNO {
 public:
-    int player_num;
-    
-    // 🔥 最佳實踐：使用 std::unique_ptr 自動管理指標生命週期
+    Deck deck; // 僅初始化成員，不進行牌組初始化
     std::vector<std::unique_ptr<Player>> players; 
-    
-    Deck deck;
+    int player_num;
     bool running = false;
 
     // 建構子：建立玩家 (1 個人類 + 其他電腦玩家)，並啟動遊戲循環。
@@ -488,6 +504,7 @@ public:
     // 若第一張牌是特殊牌（如 +2/Skip/Reverse 或 special），則放回牌庫重抽。
     void setup() {
         running = true;
+        deck.init(); // 初始化牌組
         
         for (auto& p : players) {
             p->hand.clear();
@@ -500,7 +517,7 @@ public:
     // 詢問玩家是否要重新開始遊戲。
     // 回傳 true 代表重新開始 (會再次執行 setup+main_loop)。
     bool ask_restart() {
-        std::cout << "是否要重新開始遊戲？(y/n)" << std::endl;
+        std::cout << "是否要重新開始遊戲？(y/n)" << '\n';
         while (true) {
             str s;
             std::getline(std::cin, s);
@@ -512,13 +529,13 @@ public:
                 std::cout << "遊戲結束!" << std::endl;
                 return false;
             }
-            std::cout << "請輸入y或n!" << std::endl;
+            std::cout << "請輸入y或n!" << '\n';
         }
     }
 
     // 主要遊戲迴圈，依序讓玩家出牌，並根據牌的效果變更順序、跳過玩家、強迫抽牌等。
     void main_loop() {
-        std::cout << "遊戲開始!" << std::endl;
+        std::cout << "遊戲開始!" << '\n';
         int now_index = 0;
         int direction = CLOCKWISE;
         auto normalize_index = [&](int idx) {
@@ -535,23 +552,25 @@ public:
             } else if (state == "Skip") {
                 // 跳過下一位玩家
                 now_index = normalize_index(now_index + direction);
-                std::cout << players[now_index]->name << "被跳過了" << std::endl;
+                std::cout << players[now_index]->name << "被跳過了" << '\n';
                 now_index = normalize_index(now_index + direction);
             } else if (state == "Reverse") {
                 // 反轉出牌方向
                 direction *= -1;
-                std::cout << (direction == COUNTERCLOCKWISE ? "換成逆時針" : "換成順時針") << std::endl;
+                std::cout << (direction == COUNTERCLOCKWISE ? "換成逆時針" : "換成順時針") << '\n';
                 now_index = normalize_index(now_index + direction);
             } else if (state == "+2") {
-                // +2 牌會讓下一位玩家抽2張牌
+                // +2 牌會讓下一位玩家抽2張牌，並跳過該玩家
                 now_index = normalize_index(now_index + direction);
-                std::cout << players[now_index]->name << "抽2張牌" << std::endl;
+                std::cout << players[now_index]->name << "抽2張牌，且被跳過" << '\n';
                 players[now_index]->deal(2, deck);
-            } else if (state == "+4") {
-                // +4 牌會讓下一位玩家抽4張牌
                 now_index = normalize_index(now_index + direction);
-                std::cout << players[now_index]->name << "抽4張牌" << std::endl;
+            } else if (state == "+4") {
+                // +4 牌會讓下一位玩家抽4張牌，並跳過該玩家
+                now_index = normalize_index(now_index + direction);
+                std::cout << players[now_index]->name << "抽4張牌，且被跳過" << '\n';
                 players[now_index]->deal(4, deck);
+                now_index = normalize_index(now_index + direction);
             } else if (state == "win") {
                 running = false;
                 break;
@@ -571,29 +590,29 @@ public:
 int main() {
     int player_num;
     str human_name;
-    std::cout << "歡迎來到UNO遊戲!" << std::endl;
+    std::cout << "歡迎來到UNO遊戲!" << '\n';
     
     while (true) {
-        std::cout << "請輸入玩家人數(2~10):" << std::endl;
+        std::cout << "請輸入玩家人數(2~10): ";
         str s;
         std::getline(std::cin, s);
         trim(s);
 
         bool is_digit = !s.empty() && std::all_of(s.begin(), s.end(), ::isdigit);
         if (!is_digit) {
-            std::cout << "請輸入一個有效的整數！" << std::endl;
+            std::cout << "請輸入一個有效的整數！" << '\n';
             continue;
         }
 
         player_num = std::stoi(s);
         if (player_num < 2 || player_num > 10) {
-            std::cout << "請輸入2~10之間的整數!" << std::endl;
+            std::cout << "請輸入2~10之間的整數!" << '\n';
             continue;
         }
         break;
     }
 
-    std::cout << "請輸入人類玩家的名字:" << std::endl;
+    std::cout << "請輸入人類玩家的名字: ";
     std::getline(std::cin, human_name);
     trim(human_name);
     if(human_name.empty()) human_name = "Player"; // 避免輸入全空白字元
