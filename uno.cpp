@@ -34,16 +34,41 @@ public:
     str getStr() const { return strings[value]; }
 
     bool operator==(const Color &other) const { return value == other.value; }
-    bool operator==(const Value &other) const { return value == other; }
+    // Value 本質上是 int ，直接傳值比 const Value& 快
+    bool operator==(Value other) const { return value == other; }
+    // Value 本質上是 int ，直接傳值比 const Value& 快
     bool operator!=(const Color &other) const { return value != other.value; }
-    bool operator!=(const Value &other) const { return value != other; }
+    bool operator!=(Value other) const { return value != other; }
     bool operator<(const Color &other) const { return value < other.value; }
 };
-const std::vector<str> Color::names = {"RED", "YELLOW", "GREEN", "BLUE", "SPECIAL"}; 
-const std::vector<str> Color::strings = {"R", "Y", "G", "B", "special"};
+const std::vector<str> Color::names = {"RED", "YELLOW", "GREEN", "BLUE", "SPECIAL"}; // 一定要與Color::Value一一對應
+const std::vector<str> Color::strings = {"R", "Y", "G", "B", "Special"}; // 一定要與Color::Value一一對應
 
-const std::vector<str> RANKS = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "Skip", "Reverse", "+2"};
-const std::vector<str> PLAYERS_NAME = {"Anna","Bob","Charlotte","Danny","Emily","Frank","Grace","Henry","Isabella","Jessica"};
+class Rank {
+public:
+    enum Value { _0, _1, _2, _3, _4, _5, _6, _7, _8, _9, SKIP, REVERSE, DRAW_2 , WILD, WILD_DRAW_4};
+
+    static const std::vector<str> strings;
+private:
+    Value value;
+public:
+    Rank(Value v) : value(v) {}
+    Rank(const str &s) {
+        auto it = std::find(strings.begin(), strings.end(), s);
+        if(it == strings.end()) {
+            throw std::out_of_range("輸入的字串找不到對應的點數！");
+        }
+        value = static_cast<Value>(std::distance(strings.begin(), it));
+    }
+
+    str getStr() const { return strings[value]; }
+
+    bool operator==(const Rank &other) const { return value == other.value; }
+    bool operator==(Value other) const { return value == other; }
+};
+const std::vector<str> Rank::strings = {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "Skip", "Reverse", "+2", "Wild", "Wild +4"}; // 一定要與Rank::Value一一對應
+
+const std::vector<str> PLAYERS_NAME = {"Anna","Bob","Charlotte","Danny","Emily","Frank","Grace","Henry","Isabella","Jessica"}; // // 一定要與Rank::Value一一對應
 const int CLOCKWISE = 1;
 const int COUNTERCLOCKWISE = -1;
 
@@ -63,13 +88,13 @@ inline void trim(str &s) {
 class Card {
 public:
     Color color;
-    str rank;
+    Rank rank;
 
-    Card(Color c, str r) : color(c), rank(std::move(r)) {}
+    Card(Color c, Rank r) : color(c), rank(r) {}
 
     // 將卡片內容格式化為可輸出字串，例如 "R 5" 或 "special +4"。
     str toString() const noexcept {
-        return color.getStr() + " " + rank;
+        return color.getStr() + " " + rank.getStr();
     }
 
     // 判斷這張牌是否符合出牌規則：
@@ -113,17 +138,19 @@ public:
         for (std::size_t i=0; i<Color::strings.size(); ++i) { // 比 for (const str& color_str : Color::strings) {
             Color c{static_cast<Color::Value>(i)}; // Color c{color_str}; 更快，因為不用呼叫Color(const str &s)
             if (c == Color::SPECIAL) continue;
-            cards.emplace_back(c, "0"); // 添加4張0
+            cards.emplace_back(c, Rank::_0); // 每種顏色各有1張0
             // 數字1~9和"Skip", "Reverse", "+2"都各有兩張
-            for (const auto& r : RANKS) {
+            // 13和14是特殊牌的
+            for (int j=1; j<13; ++j) { // 比 for (const str& rank_str : Rank::strings) {
+                Rank r{static_cast<Rank::Value>(j)}; // Rank r{rank_str}; 更快，因為不用呼叫Rank(const str &s)
                 cards.emplace_back(c, r);
                 cards.emplace_back(c, r);
             }
         }
         // 特殊牌: wild 和 +4 各有4張
         for (int i = 0; i < 4; ++i) {
-            cards.emplace_back(Color::SPECIAL, "wild");
-            cards.emplace_back(Color::SPECIAL, "+4");
+            cards.emplace_back(Color::SPECIAL, Rank::WILD);
+            cards.emplace_back(Color::SPECIAL, Rank::WILD_DRAW_4);
         }
 
         shuffle();
@@ -158,7 +185,7 @@ public:
         discard.pop_back();
 
         for (Card& card : discard) {
-            if (card.rank == "wild" || card.rank == "+4") {
+            if (card.rank == Rank::WILD || card.rank == Rank::WILD_DRAW_4) {
                 card.color = Color::SPECIAL;
             }
         }
@@ -173,8 +200,8 @@ public:
         while (true) {
             Card card = std::move(draw());
             
-            if (card.color == Color::SPECIAL || card.rank == "+2" || 
-                card.rank == "Skip" || card.rank == "Reverse") { // 不能當底牌的牌
+            if (card.color == Color::SPECIAL || card.rank == Rank::DRAW_2 || 
+                card.rank == Rank::SKIP || card.rank == Rank::REVERSE) { // 不能當底牌的牌
                 cards.insert(cards.begin(), card); // 插回最底部
             } else { // card 可以當底牌
                 discard.push_back(card);
@@ -243,17 +270,17 @@ public:
 
         if (played_card.color == Color::SPECIAL) {
             played_card.color = this->convert_color(); // 動態綁定
-            if (played_card.rank == "wild") {
+            if (played_card.rank == Rank::WILD) {
                 return "normal";
-            } else if (played_card.rank == "+4") {
+            } else if (played_card.rank == Rank::WILD_DRAW_4) {
                 return "+4";
             } else {
                 throw std::runtime_error("錯誤!程式應該不會執行到這裡");
             }
-        } else if (isdigit(played_card.rank[0])) { 
+        } else if (isdigit(played_card.rank.getStr()[0])) { // 一般數字牌
             return "normal";
         } else {
-            return played_card.rank; // Skip, Reverse, +2
+            return played_card.rank.getStr(); // Skip, Reverse, +2
         }
     }
 
@@ -393,7 +420,7 @@ public:
                 Card card = hand[user_input - 1]; // 減1是因為std::vector的索引從0開始
                 if (!card.has_compliance_rules(discard_last_card)) {
                     std::cout << "請輸入顏色為" << discard_last_card.color.getStr()
-                              << "或special的牌或者點數為" << discard_last_card.rank << "的牌!" << std::endl;
+                              << "或special的牌或者點數為" << discard_last_card.rank.getStr() << "的牌!" << std::endl;
                     continue;
                 }
 
