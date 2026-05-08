@@ -13,11 +13,10 @@ using str = std::string;
 // ---------------------------------------------------------
 
 // ---------------------------------------------------------
-// Class Color
+// struct Color
 // ---------------------------------------------------------
 // 只存一個 enum Value ， enum 底層就一個整數，開銷比存str小
-class Color {
-public:
+struct Color {
     enum Value { RED, YELLOW, GREEN, BLUE, SPECIAL };
     
     static const std::vector<str> names;
@@ -50,11 +49,10 @@ const std::vector<str> Color::names = {"RED", "YELLOW", "GREEN", "BLUE", "SPECIA
 const std::vector<str> Color::strings = {"R", "Y", "G", "B", "Special"}; // 一定要與Color::Value一一對應
 
 // ---------------------------------------------------------
-// Class Rank
+// struct Rank
 // ---------------------------------------------------------
 // 只存一個 enum Value ， enum 底層就一個整數，開銷比存str小
-class Rank {
-public:
+struct Rank {
     enum Value { _0, _1, _2, _3, _4, _5, _6, _7, _8, _9, SKIP, REVERSE, DRAW_2 , WILD, WILD_DRAW_4};
 
     static const std::vector<str> strings;
@@ -74,6 +72,8 @@ public:
 
     bool operator==(const Rank &other) const { return value == other.value; }
     bool operator==(Value other) const { return value == other; }
+    bool operator!=(const Rank &other) const { return value != other.value; }
+    bool operator!=(Value other) const { return value != other; }
 };
 const std::vector<str> Rank::strings = {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "Skip", "Reverse", "+2", "Wild", "Wild +4"}; // 一定要與Rank::Value一一對應
 
@@ -92,14 +92,25 @@ inline void trim(str &s) {
 
 
 // ---------------------------------------------------------
-// Class Card
+// struct Card
 // ---------------------------------------------------------
-class Card {
-public:
+struct Card {
+private:
     Color color;
     Rank rank;
 
+public:
     Card(Color c, Rank r) : color(c), rank(r) {}
+
+    Color getColor() const { return color; }
+    Rank getRank() const {return rank; }
+
+    void setColor(Color changed_color) {
+        if(color != Color::SPECIAL && rank != Rank::WILD && rank != Rank::WILD_DRAW_4) {
+            throw std::runtime_error("顏色不是Special且點數不是轉色或+4的牌不能變色！");
+        }
+        color = changed_color;
+    }
 
     // 將卡片內容格式化為可輸出字串，例如 "R 5" 或 "special +4"。
     str toString() const noexcept {
@@ -117,7 +128,7 @@ public:
     }
 
     // 比較兩張牌是否完全相同 (顏色 + 點數/功能)。
-    bool operator==(const Card &other) const noexcept {
+    bool operator==(const Card& other) const noexcept {
         return color == other.color && rank == other.rank;
     }
 };
@@ -131,10 +142,10 @@ std::ostream& operator<<(std::ostream& os, const Card& card) {
 // Class Deck
 // ---------------------------------------------------------
 class Deck {
+    std::mt19937 rng;
 public:
     std::vector<Card> cards;
     std::vector<Card> discard;
-    std::mt19937 rng;
 
     // 構造子：僅初始化成員，不進行牌組初始化
     // 牌組初始化延遲到 setup() 中進行
@@ -202,8 +213,8 @@ public:
         discard.pop_back();
 
         for (Card& card : discard) {
-            if (card.rank == Rank::WILD || card.rank == Rank::WILD_DRAW_4) {
-                card.color = Color::SPECIAL;
+            if (card.getRank() == Rank::WILD || card.getRank() == Rank::WILD_DRAW_4) {
+                card.setColor(Color::SPECIAL);
             }
         }
         
@@ -217,8 +228,8 @@ public:
         while (true) {
             Card card = std::move(draw());
             
-            if (card.color == Color::SPECIAL || card.rank == Rank::DRAW_2 || 
-                card.rank == Rank::SKIP || card.rank == Rank::REVERSE) { // 不能當底牌的牌
+            if (card.getColor() == Color::SPECIAL || card.getRank() == Rank::DRAW_2 || 
+                card.getRank() == Rank::SKIP || card.getRank() == Rank::REVERSE) { // 不能當底牌的牌
                 cards.insert(cards.begin(), card); // 插回最底部
             } else { // card 可以當底牌
                 discard.push_back(card);
@@ -235,17 +246,21 @@ public:
 // 代表一名 UNO 玩家，包含共用的手牌與出牌邏輯。
 // HumanPlayer 與 RobotPlayer 會繼承此類別並實作具體的出牌策略。
 class Player {
-public:
+protected: // 子類可以存取，外部不能
     str name;
     // 玩家手牌，為什麼要經常增刪的手牌要使用vector呢？用std::list不好嗎？
     // 因為 std::list 雖然增刪快，但遍歷慢啊！
     // 每次出牌都要遍歷，但不一定要刪除啊，抽牌只要尾端加一
     std::vector<Card> hand;
 
+public:
     Player(str n) : name(std::move(n)) {}
     
     // 虛擬解構子：確保多型時，資源能被正確釋放
     virtual ~Player() = default;
+
+    str getName() const { return name; }
+    void clearHand() { hand.clear(); }
 
     // 純虛擬函式：強迫子類別實作
     virtual void deal(int, Deck&) = 0; 
@@ -288,19 +303,19 @@ public:
 
         Card& played_card = deck.discard.back(); 
 
-        if (played_card.color == Color::SPECIAL) {
-            played_card.color = this->convert_color(); // 動態綁定
-            if (played_card.rank == Rank::WILD) {
+        if (played_card.getColor() == Color::SPECIAL) {
+            played_card.setColor(this->convert_color()); // 動態綁定
+            if (played_card.getRank() == Rank::WILD) {
                 return "normal";
-            } else if (played_card.rank == Rank::WILD_DRAW_4) {
+            } else if (played_card.getRank() == Rank::WILD_DRAW_4) {
                 return "+4";
             } else {
                 throw std::runtime_error("錯誤!程式應該不會執行到這裡");
             }
-        } else if (isdigit(played_card.rank.getStr()[0])) { // 一般數字牌
+        } else if (isdigit(played_card.getRank().getStr()[0])) { // 一般數字牌
             return "normal";
         } else {
-            return played_card.rank.getStr(); // Skip, Reverse, +2
+            return played_card.getRank().getStr(); // Skip, Reverse, +2
         }
     }
 
@@ -337,7 +352,7 @@ public:
 
         // 優先出非特殊牌
         for (auto it = hand.begin(); it != hand.end(); ++it) {
-            if (it->color != Color::SPECIAL && it->has_compliance_rules(discard_last_card)) {
+            if (it->getColor() != Color::SPECIAL && it->has_compliance_rules(discard_last_card)) {
                 deck.discard.push_back(std::move(*it));
                 hand.erase(it); // erase 使 it 失效，之後不應繼續迭代
                 std::cout << name << "出了 " << deck.discard.back() << '\n';
@@ -347,7 +362,7 @@ public:
 
         // 出特殊牌
         for (auto it = hand.begin(); it != hand.end(); ++it) {
-            if (it->color == Color::SPECIAL) {
+            if (it->getColor() == Color::SPECIAL) {
                 deck.discard.push_back(std::move(*it));
                 hand.erase(it); // erase 使 it 失效，之後不應繼續迭代
                 std::cout << name << "出了 " << deck.discard.back() << '\n';
@@ -364,8 +379,8 @@ public:
     Color convert_color() override {
         std::map<Color, int> color_num;
         for (const auto& card : hand) {
-            if (card.color != Color::SPECIAL) {
-                color_num[card.color]++;
+            if (card.getColor() != Color::SPECIAL) {
+                color_num[card.getColor()]++;
             }
         }
         
@@ -406,7 +421,7 @@ public:
         display_hand();
 
         while (true) {
-            std::cout << name << "請問你要出第幾張牌?(如果不想出牌，請輸入0)" << '\n';
+            std::cout << name << "請問你要出第幾張牌(若不想出牌請輸入0)? ";
             str s;
             std::getline(std::cin, s);
             trim(s);
@@ -437,8 +452,8 @@ public:
             } else {
                 Card& card = hand[user_input - 1]; // 減1是因為std::vector的索引從0開始
                 if (!card.has_compliance_rules(discard_last_card)) {
-                    std::cout << "請輸入顏色為" << discard_last_card.color.getStr()
-                              << "或special的牌或者點數為" << discard_last_card.rank.getStr() << "的牌!" << '\n';
+                    std::cout << "請輸入顏色為" << discard_last_card.getColor().getStr()
+                              << "或special的牌或者點數為" << discard_last_card.getRank().getStr() << "的牌!" << '\n';
                     continue;
                 }
 
@@ -455,7 +470,7 @@ public:
     // 會持續詢問直到輸入有效顏色代號為止。
     Color convert_color() override {
         while (true) {
-            std::cout << name << "請選擇顏色:(請輸入RYGB其中之一)" << '\n';
+            std::cout << name << "請選擇顏色(請輸入RYGB其中之一): ";
             str s;
             std::getline(std::cin, s);
             trim(s);
@@ -477,12 +492,12 @@ public:
 // ---------------------------------------------------------
 // 管理整個遊戲流程：設定玩家、發牌、輪流出牌、處理特殊牌效果，以及判定遊戲結束。
 class UNO {
-public:
     Deck deck; // 僅初始化成員，不進行牌組初始化
     std::vector<std::unique_ptr<Player>> players; 
     int player_num;
     bool running = false;
 
+public:
     // 建構子：建立玩家 (1 個人類 + 其他電腦玩家)，並啟動遊戲循環。
     // 會在遊戲結束後詢問是否重新開始。
     UNO(int p_num, const str& human_name) : player_num(p_num) {
@@ -507,7 +522,7 @@ public:
         deck.init(); // 初始化牌組
         
         for (auto& p : players) {
-            p->hand.clear();
+            p->clearHand();
             p->deal(7, deck);
         }
 
@@ -517,7 +532,7 @@ public:
     // 詢問玩家是否要重新開始遊戲。
     // 回傳 true 代表重新開始 (會再次執行 setup+main_loop)。
     bool ask_restart() {
-        std::cout << "是否要重新開始遊戲？(y/n)" << '\n';
+        std::cout << "是否要重新開始遊戲(y/n)? ";
         while (true) {
             str s;
             std::getline(std::cin, s);
@@ -552,7 +567,7 @@ public:
             } else if (state == "Skip") {
                 // 跳過下一位玩家
                 now_index = normalize_index(now_index + direction);
-                std::cout << players[now_index]->name << "被跳過了" << '\n';
+                std::cout << players[now_index]->getName() << "被跳過了" << '\n';
                 now_index = normalize_index(now_index + direction);
             } else if (state == "Reverse") {
                 // 反轉出牌方向
@@ -562,13 +577,13 @@ public:
             } else if (state == "+2") {
                 // +2 牌會讓下一位玩家抽2張牌，並跳過該玩家
                 now_index = normalize_index(now_index + direction);
-                std::cout << players[now_index]->name << "抽2張牌，且被跳過" << '\n';
+                std::cout << players[now_index]->getName() << "抽2張牌，且被跳過" << '\n';
                 players[now_index]->deal(2, deck);
                 now_index = normalize_index(now_index + direction);
             } else if (state == "+4") {
                 // +4 牌會讓下一位玩家抽4張牌，並跳過該玩家
                 now_index = normalize_index(now_index + direction);
-                std::cout << players[now_index]->name << "抽4張牌，且被跳過" << '\n';
+                std::cout << players[now_index]->getName() << "抽4張牌，且被跳過" << '\n';
                 players[now_index]->deal(4, deck);
                 now_index = normalize_index(now_index + direction);
             } else if (state == "win") {
@@ -578,7 +593,7 @@ public:
                 throw std::runtime_error("錯誤!未知狀態: " + state);
             }
 
-            std::cout << "下一個人是" << players[now_index]->name << "\n====================" << std::endl;
+            std::cout << "下一個人是" << players[now_index]->getName() << "\n====================" << std::endl;
         }
     }
 };
